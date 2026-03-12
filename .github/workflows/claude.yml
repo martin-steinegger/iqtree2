@@ -1,0 +1,25 @@
+name: Claude Assistant
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned, labeled]
+  discussion_comment:
+    types: [created]
+
+jobs:
+  claude-roblanf:
+    runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'issue_comment' && github.event.comment.user.login == 'roblanf') ||
+      (github.event_name == 'pull_request_review_comment' && github.event.comment.user.login == 'roblanf') ||
+      (github.event_name == 'issues' && github.actor == 'roblanf') ||
+      (github.event_name == 'discussion_comment' && github.event.comment.user.login == 'roblanf')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_OAUTH_ROBLANF }}
