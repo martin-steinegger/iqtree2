@@ -923,6 +923,30 @@ void Alignment::extractSequences(char *filename, char *sequence_type, StrVector 
 	determine if the pattern is constant. update the is_const variable.
 */
 void Alignment::computeConst(Pattern &pat) {
+    // Large-alphabet path: bypasses StateBitset which is capped at NUM_CHAR=256
+    if (num_states > NUM_CHAR) {
+        pat.const_char = STATE_UNKNOWN + 1;  // sentinel: "not constant"
+        pat.num_chars = 0;
+        pat.flag = 0;
+        vector<size_t> num_app(num_states, 0);
+        for (auto s : pat)
+            if (s < (StateType)num_states) num_app[s]++;
+        int count = 0;
+        for (int j = 0; j < num_states; j++) if (num_app[j]) {
+            pat.num_chars++;
+            if (num_app[j] >= 2) count++;
+        }
+        bool is_informative = (count >= 2);
+        bool is_const = (pat.num_chars <= 1);
+        if (is_const) {
+            if (pat.num_chars == 0) pat.const_char = STATE_UNKNOWN;  // all-gap
+            else for (int j = 0; j < num_states; j++) if (num_app[j]) { pat.const_char = j; break; }
+        }
+        if (is_const)       pat.flag |= PAT_CONST | PAT_INVARIANT;
+        if (is_informative) pat.flag |= PAT_INFORMATIVE;
+        return;
+    }
+
     bool is_const = true;
     bool is_invariant = false;
     bool is_informative = false;
@@ -1346,7 +1370,8 @@ SeqType Alignment::detectSequenceType(StrVector &sequences) {
 
 void Alignment::buildStateMap(char *map, SeqType seq_type) {
     memset(map, STATE_INVALID, NUM_CHAR);
-    ASSERT(STATE_UNKNOWN < 126);
+    if (seq_type != SEQ_MULTISTATE)
+        ASSERT(STATE_UNKNOWN < 126);
     map[(unsigned char)'?'] = STATE_UNKNOWN;
     map[(unsigned char)'-'] = STATE_UNKNOWN;
     map[(unsigned char)'~'] = STATE_UNKNOWN;
@@ -1392,8 +1417,10 @@ void Alignment::buildStateMap(char *map, SeqType seq_type) {
         map[(unsigned char)'O'] = STATE_UNKNOWN; // 22nd amino acid
         return;
     case SEQ_MULTISTATE:
-        for (int i = 0; i <= STATE_UNKNOWN; i++)
-            map[i] = i;
+        if (STATE_UNKNOWN < (StateType)NUM_CHAR) {
+            for (int i = 0; i <= (int)STATE_UNKNOWN; i++)
+                map[i] = i;
+        }
         return;
     case SEQ_MORPH: // Protein
     	len = strlen(symbols_morph);
@@ -1785,7 +1812,7 @@ int Alignment::buildPattern(StrVector &sequences, char *sequence_type, int nseq,
         break;
     case SEQ_MORPH:
         num_states = getMorphStates(sequences);
-        if (num_states < 2 || num_states > 32) throw "Invalid number of states.";
+        if (num_states < 2) throw "Invalid number of states.";
         cout << "Alignment most likely contains " << num_states << "-state morphological data" << endl;
         break;
     case SEQ_POMO:
@@ -1817,7 +1844,7 @@ int Alignment::buildPattern(StrVector &sequences, char *sequence_type, int nseq,
             cout << "Translating to amino-acid sequences with genetic code " << &sequence_type[5] << " ..." << endl;
         } else if (strcmp(sequence_type, "NUM") == 0 || strcmp(sequence_type, "MORPH") == 0) {
             num_states = getMorphStates(sequences);
-            if (num_states < 2 || num_states > 32) throw "Invalid number of states";
+            if (num_states < 2) throw "Invalid number of states";
             user_seq_type = SEQ_MORPH;
         } else if (strcmp(sequence_type, "TINA") == 0 || strcmp(sequence_type, "MULTI") == 0) {
             cout << "Multi-state data with " << num_states << " alphabets" << endl;
@@ -2025,12 +2052,150 @@ void Alignment::doReadPhylip(char *filename, char *sequence_type, StrVector &seq
     in.close();
 }
 
+void Alignment::doReadPhylipNumeric(char *filename,
+    vector<vector<StateType>> &sequences, int &nseq, int &nsite)
+{
+    ostringstream err_str;
+    igzstream in;
+    int line_num = 1;
+    in.exceptions(ios::failbit | ios::badbit);
+    in.open(filename);
+    int seq_id = 0;
+    string line;
+    in.exceptions(ios::badbit);
+    num_states = 0;
+
+    for (; !in.eof(); line_num++) {
+        safeGetline(in, line);
+        line = line.substr(0, line.find_first_of("\n\r"));
+        if (line == "") continue;
+
+        if (nseq == 0) { // read header
+            istringstream line_in(line);
+            if (!(line_in >> nseq >> nsite))
+                throw "Invalid PHYLIP format. First line must contain number of sequences and sites";
+            if (nseq < 3)
+                throw "There must be at least 3 sequences";
+            if (nsite < 1)
+                throw "No alignment columns";
+            seq_names.resize(nseq, "");
+            sequences.resize(nseq);
+        } else { // read sequence contents
+            if (seq_names[seq_id] == "") { // cut out sequence name
+                string::size_type pos = line.find_first_of(" \t");
+                if (pos == string::npos) pos = 10;
+                seq_names[seq_id] = line.substr(0, pos);
+                line.erase(0, pos);
+            }
+            size_t old_len = sequences[seq_id].size();
+            istringstream linestr(line);
+            int state;
+            while (!linestr.eof()) {
+                state = INT_MIN;  // unset sentinel
+                linestr >> state;
+                if (state == INT_MIN) break;  // parse failed (EOF or non-numeric)
+                if (state < 0) {
+                    // Negative values represent gaps / unknown states.
+                    // Use UINT32_MAX as placeholder; replaced by STATE_UNKNOWN in buildPatternNumeric.
+                    sequences[seq_id].push_back((StateType)UINT32_MAX);
+                } else {
+                    sequences[seq_id].push_back((StateType)state);
+                    if (num_states < state + 1) num_states = state + 1;
+                }
+            }
+            if (sequences[seq_id].size() != sequences[0].size()) {
+                err_str << "Line " << line_num << ": Sequence " << seq_names[seq_id]
+                        << " has wrong sequence length " << sequences[seq_id].size() << endl;
+                throw err_str.str();
+            }
+            if (sequences[seq_id].size() > old_len)
+                seq_id++;
+            if (seq_id == nseq)
+                seq_id = 0;
+        }
+    }
+    in.clear();
+    in.exceptions(ios::failbit | ios::badbit);
+    in.close();
+}
+
+int Alignment::buildPatternNumeric(vector<vector<StateType>> &sequences, int nseq, int nsite) {
+    ostringstream err_str;
+    codon_table = NULL;
+    genetic_code = NULL;
+    non_stop_codon = NULL;
+
+    if (nseq != (int)seq_names.size())
+        throw "Different number of sequences than specified";
+
+    // check duplicate names
+    unordered_set<string> namesSeen;
+    for (int seq_id = 0; seq_id < nseq; seq_id++) {
+        if (seq_names[seq_id] == "")
+            throw string("Sequence number ") + convertIntToString(seq_id+1) + " has no name";
+        if (!namesSeen.insert(seq_names[seq_id]).second)
+            throw string("The sequence name ") + seq_names[seq_id] + " is duplicated";
+    }
+
+    // check lengths
+    for (int seq_id = 0; seq_id < nseq; seq_id++) {
+        if ((int)sequences[seq_id].size() != nsite) {
+            err_str << "Sequence " << seq_names[seq_id] << " contains ";
+            if ((int)sequences[seq_id].size() < nsite)
+                err_str << "not enough";
+            else
+                err_str << "too many";
+            err_str << " characters (" << sequences[seq_id].size() << ")\n";
+        }
+    }
+    if (err_str.str() != "")
+        throw err_str.str();
+
+    seq_type = SEQ_MULTISTATE;
+    cout << "Multi-state data with " << num_states << " alphabets" << endl;
+    computeUnknownState();  // sets STATE_UNKNOWN = num_states
+
+    // Replace gap placeholders (UINT32_MAX) with STATE_UNKNOWN now that its value is known
+    for (int seq = 0; seq < nseq; seq++)
+        for (auto &s : sequences[seq])
+            if (s == (StateType)UINT32_MAX) s = STATE_UNKNOWN;
+
+    site_pattern.resize(nsite, -1);
+    clear();
+    pattern_index.clear();
+
+    Pattern pat;
+    pat.resize(nseq);
+    int num_gaps_only = 0;
+
+    progress_display progress(nsite, "Constructing alignment", "examined", "site");
+    for (int site = 0; site < nsite; site++) {
+        for (int seq = 0; seq < nseq; seq++)
+            pat[seq] = sequences[seq][site];
+        bool gaps_only;
+        addPatternLazy(pat, site, 1, gaps_only);
+        num_gaps_only += gaps_only ? 1 : 0;
+        progress += 1;
+    }
+    progress.done();
+    updatePatterns(0);
+    if (num_gaps_only)
+        cout << "WARNING: " << num_gaps_only << " sites contain only gaps or ambiguous characters." << endl;
+    return 1;
+}
+
 int Alignment::readPhylip(char *filename, char *sequence_type) {
+    bool numeric_state = (sequence_type &&
+        (strcmp(sequence_type,"TINA")==0 || strcmp(sequence_type,"MULTI")==0));
+    if (numeric_state) {
+        vector<vector<StateType>> sequences;
+        int nseq = 0, nsite = 0;
+        doReadPhylipNumeric(filename, sequences, nseq, nsite);
+        return buildPatternNumeric(sequences, nseq, nsite);
+    }
     StrVector sequences;
     int nseq = 0, nsite = 0;
-    
     doReadPhylip(filename, sequence_type, sequences, nseq, nsite);
-
     return buildPattern(sequences, sequence_type, nseq, nsite);
 }
 
@@ -4776,7 +4941,8 @@ void Alignment::getAppearance(StateType state, StateBitset &state_app) {
 
     state_app.reset();
     if (state < num_states) {
-        state_app[(int)state] = 1;
+        if ((int)state < NUM_CHAR)  // guard: StateBitset is bitset<256>
+            state_app[(int)state] = 1;
         return;
     }
 	// ambiguous characters

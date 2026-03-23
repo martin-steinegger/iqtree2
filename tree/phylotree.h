@@ -921,6 +921,8 @@ public:
     template <class VectorClass, const bool SAFE_NUMERIC, const bool FMA = false, const bool SITE_MODEL = false>
     void computePartialLikelihoodGenericSIMD(TraversalInfo &info, size_t ptn_lower, size_t ptn_upper, int thread_id);
 
+    void computePartialLikelihoodBLAS(TraversalInfo &info, size_t ptn_lower, size_t ptn_upper, int thread_id);
+
     /*
     template <class VectorClass, const int VCSIZE, const int nstates>
     void computeMixratePartialLikelihoodEigenSIMD(PhyloNeighbor *dad_branch, PhyloNode *dad = NULL);

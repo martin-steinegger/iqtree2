@@ -51,6 +51,12 @@ void ModelMorphology::init(const char *model_name, string model_params, StateFre
 }
 
 void ModelMorphology::readRates(istream &in) noexcept(false) {
+	// Non-reversible matrix files have a negative first value (the diagonal).
+	// The upper-triangle reader below cannot handle them; delegate to ModelMarkov.
+	if (!is_reversible) {
+		ModelMarkov::readRates(in);
+		return;
+	}
 	int nrates = getNumRateEntries();
 	int row = 1, col = 0;
 	// since states for protein is stored in lower-triangle, special treatment is needed

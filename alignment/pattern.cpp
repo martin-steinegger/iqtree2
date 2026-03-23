@@ -20,7 +20,7 @@ Pattern::Pattern()
 //    is_const = false;
 //    is_informative = false;
     flag = 0;
-    const_char = -1;
+    const_char = UINT32_MAX;
     num_chars = 0;
 }
 
@@ -31,7 +31,7 @@ Pattern::Pattern(int nseq, int freq)
     //    is_const = false;
     //    is_informative = false;
     flag = 0;
-    const_char = -1;
+    const_char = UINT32_MAX;
     num_chars = 0;
 }
 

@@ -210,6 +210,23 @@ public:
     void doReadPhylip(char *filename, char *sequence_type, StrVector &sequences, int &nseq, int &nsite);
 
     /**
+            do-read the alignment in PHYLIP format with space-separated integer states (for MULTI/TINA)
+            @param filename file name
+            @param sequences output sequences as vectors of StateType
+            @param nseq, nsite output sequence and site counts
+     */
+    void doReadPhylipNumeric(char *filename,
+        vector<vector<StateType>> &sequences, int &nseq, int &nsite);
+
+    /**
+            build patterns from numeric (integer-state) sequences (for MULTI/TINA)
+            @param sequences input sequences as vectors of StateType
+            @param nseq, nsite sequence and site counts
+            @return 1 on success
+     */
+    int buildPatternNumeric(vector<vector<StateType>> &sequences, int nseq, int nsite);
+
+    /**
             read the alignment in PHYLIP format (interleaved)
             @param filename file name
             @param sequence_type type of the sequence, either "BIN", "DNA", "AA", or NULL

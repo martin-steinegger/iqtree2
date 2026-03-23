@@ -774,6 +774,7 @@ if (USE_LSD2)
 endif()
 
 add_library(kernelsse tree/phylokernelsse.cpp)
+add_library(kernelblas tree/phylokernelblas.cpp)
 
 if (NOT IQTREE_FLAGS MATCHES "novx")
 add_library(kernelavx tree/phylotreeavx.cpp)
@@ -876,9 +877,17 @@ if (NOT IQTREE_FLAGS MATCHES "single")
     endif()
 endif()
 
+# Apple Accelerate BLAS (for computePartialLikelihoodBLAS)
+if(APPLE)
+    find_library(ACCELERATE_FRAMEWORK Accelerate)
+    if(ACCELERATE_FRAMEWORK)
+        set(BLAS_LIB ${ACCELERATE_FRAMEWORK})
+    endif()
+endif()
+
 # basic linking librararies
 target_link_libraries(iqtree2 pll ncl nclextra utils pda lbfgsb whtest sprng vectorclass model
-    gsl alignment tree simulator terrace yaml-cpp phyloYAML main ${TARGET_CMAPLE} ${PLATFORM_LIB} ${STD_LIB} ${THREAD_LIB} ${ATOMIC_LIB})
+    gsl alignment tree simulator terrace yaml-cpp phyloYAML main ${TARGET_CMAPLE} ${PLATFORM_LIB} ${STD_LIB} ${THREAD_LIB} ${ATOMIC_LIB} ${BLAS_LIB})
 
 if (USE_CMAPLE_AA STREQUAL "ON")
 	target_link_libraries(iqtree2-aa pll ncl nclextra utils pda lbfgsb whtest sprng vectorclass model
@@ -905,6 +914,7 @@ if (NOT IQTREE_FLAGS MATCHES "nosse")
     	target_link_libraries(iqtree2-aa kernelsse)
     endif()
 endif()
+target_link_libraries(iqtree2 kernelblas ${BLAS_LIB})
 
 # MPI libraries
 if (IQTREE_FLAGS MATCHES "mpi")
