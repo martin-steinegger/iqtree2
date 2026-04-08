@@ -885,6 +885,11 @@ if(APPLE)
     endif()
 endif()
 
+# Linux BLAS (OpenBLAS for computePartialLikelihoodBLAS)
+if(UNIX AND NOT APPLE)
+    find_library(BLAS_LIB openblas HINTS $ENV{CONDA_PREFIX}/lib)
+endif()
+
 # basic linking librararies
 target_link_libraries(iqtree2 pll ncl nclextra utils pda lbfgsb whtest sprng vectorclass model
     gsl alignment tree simulator terrace yaml-cpp phyloYAML main ${TARGET_CMAPLE} ${PLATFORM_LIB} ${STD_LIB} ${THREAD_LIB} ${ATOMIC_LIB} ${BLAS_LIB})
